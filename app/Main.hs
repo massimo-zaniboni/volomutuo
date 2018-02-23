@@ -10,4 +10,4 @@ incomes = [[200, 300], [200, 300], [100, 300]]
 main :: IO ()
 main = do putStrLn $ "Outcomes: " ++ show outcomes
           putStrLn $ "Incomes: " ++ show incomes
-          putStrLn $ "Movements: " ++ (show $ mov_calc outcomes incomes)
+          putStrLn $ "Movements: " ++ (show $ pos_calc outcomes incomes)
