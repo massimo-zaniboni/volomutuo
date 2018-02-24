@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances, ScopedTypeVariables, OverloadedStrings #-}
+
 module Lib
     ( Position(..)
     , SharedAccount
@@ -5,16 +7,23 @@ module Lib
     , pos_empty
     , pos_balance
     , pos_calc
+    , toHeader
+    , Positions
     ) where
 
-import Data.List
+import Data.List as L
+import Data.Csv as Csv
+import qualified Data.Vector as V
+import qualified Data.ByteString as BS
+import qualified Data.Text as Text
+import Data.Text.Encoding
 
 type Money = Rational
 
 -- | A shared account of money.
 type SharedAccount = Money
 
--- | A Position and position of a Party inside a shared balance.
+-- | Position of a Party inside a shared balance, at a certain period.
 data Position
        = Position {
            pos_income :: Money
@@ -26,7 +35,7 @@ data Position
          , pos_pastWithdraws :: Money
            -- ^ the sum of past withdraws
                   }
-  deriving(Eq, Show)
+  deriving(Eq, Ord, Show)
 
 pos_empty :: Position
 pos_empty
@@ -45,6 +54,18 @@ pos_balance p = (pos_pastIncomes p) - (pos_pastWithdraws p) + (pos_income p) - (
 pos_share :: SharedAccount -> Position -> Rational
 pos_share totAccount p = (pos_balance p) / totAccount
 
+
+-- | The positions of all parties in a period.
+newtype Positions
+          = Positions
+              (SharedAccount
+               -- ^ the balance of the shared account
+               , [Position]
+               -- ^ the position of each Party
+               )
+ deriving(Eq, Ord, Show)
+
+
 -- | Given a list of outcomes to share between Parties,
 --   and a list of Parties with respective Incomes,
 --   share the outcome between parties in a proportional way
@@ -61,19 +82,15 @@ pos_calc
   --
   --  @require every Party has an income (also of 0) for each period.
   --  @require lenght targetOutcomes == lenght allIncomes
-  -> [(SharedAccount
-       -- ^ the balance of the shared account
-      , [Position]
-       -- ^ the position of each Party
-      )]
-     -- ^ the balance and positions, for each period
-
+  -> [Positions]
+     -- ^ the positions of all parties in all periods
+     
 pos_calc _ [] = []
 pos_calc targetOutcomes allIncomes
   = let upd (previousAccount, positions1) (targetOutcome, incomes)
           = let
                 currentTotAccount = previousAccount + (sum incomes)
-        
+
                 -- | Add the income to all positions,
                 --   and update past withdraws, and past incomes.
                 positions2 :: [Position]
@@ -97,4 +114,16 @@ pos_calc targetOutcomes allIncomes
         initialPositions
            = map (\_ -> pos_empty) (head allIncomes)
 
-    in  scanl' upd (0, initialPositions) (zip targetOutcomes allIncomes)
+    in L.map Positions $ scanl' upd (0, initialPositions) (zip targetOutcomes allIncomes)
+
+instance ToField Money where
+  toField m =  encodeUtf8 $ Text.pack $ show $ fromRational m
+
+instance Csv.ToRecord Positions where
+  toRecord (Positions (totAccount, positions))
+    = toRecord $ [totAccount] ++ L.concatMap (\p -> [pos_income p, pos_withdraw p]) positions
+
+toHeader :: Int -> [Csv.Header]
+toHeader n 
+  = [V.fromList $ ["Tot account"] ++ (L.map (\s -> encodeUtf8 $ Text.pack s) $ L.concatMap (\i -> ["Party " ++ show i ++ " income", "Party " ++ show i ++ " withdrawal"]) [1.. n])]
+  
